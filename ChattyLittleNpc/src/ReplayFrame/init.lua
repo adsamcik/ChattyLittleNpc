@@ -335,12 +335,32 @@ end
 
 -- Visible + playing animation update helper
 function ReplayFrame:UpdateAnimationsIfNeeded()
-    if self:IsVoiceoverCurrenltyPlaying() and self.NpcModelFrame and self.NpcModelFrame:IsShown()
-        and self.UpdateConversationAnimation then
-        CLN.Utils:LogAnimDebug("UpdateDisplayFrame - calling UpdateConversationAnimation (visible+playing)")
+    local cur = CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying
+    local playing = self:IsVoiceoverCurrenltyPlaying()
+    -- Consider both the model frame and its container, and prefer IsVisible
+    local shown = false
+    if self.NpcModelFrame and self.NpcModelFrame.IsVisible and self.NpcModelFrame:IsVisible() then shown = true end
+    if (not shown) and self.ModelContainer and self.ModelContainer.IsVisible and self.ModelContainer:IsVisible() then shown = true end
+    if (not shown) and self.NpcModelFrame and self.NpcModelFrame.IsShown and self.NpcModelFrame:IsShown() then shown = true end
+    if (not shown) and self.ModelContainer and self.ModelContainer.IsShown and self.ModelContainer:IsShown() then shown = true end
+    local inGrace = false
+    if cur and cur.startTime and GetTime then
+        local dt = GetTime() - (cur.startTime or 0)
+        inGrace = dt >= 0 and dt < 0.6
+    end
+    if (playing or inGrace) and shown and self.UpdateConversationAnimation then
+        CLN.Utils:LogAnimDebug(string.format("UpdateDisplayFrame - calling UpdateConversationAnimation (shown=%s, playing=%s, grace=%s)", tostring(shown), tostring(playing), tostring(inGrace)))
         self:UpdateConversationAnimation()
     else
-        CLN.Utils:LogAnimDebug("UpdateDisplayFrame - skipping UpdateConversationAnimation (not visible or not playing)")
+        CLN.Utils:LogAnimDebug(string.format("UpdateDisplayFrame - skipping UpdateConversationAnimation (shown=%s, playing=%s, grace=%s)", tostring(shown), tostring(playing), tostring(inGrace)))
+        -- If we are playing but not yet visible, schedule a short deferred retry
+        if (playing or inGrace) and (not shown) and (not self._deferAnimTimer) and C_Timer and C_Timer.After then
+            self._deferAnimTimer = true
+            C_Timer.After(0.1, function()
+                self._deferAnimTimer = nil
+                if self.UpdateAnimationsIfNeeded then self:UpdateAnimationsIfNeeded() end
+            end)
+        end
     end
 end
 

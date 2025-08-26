@@ -55,8 +55,12 @@ local defaults = {
         enableQuestPlaybackQueueing = true,
         stopVoiceoverAfterDialogWindowClose = false,
         audioChannel = "MASTER",
+    -- Rendering backend preference for the Replay Frame model host: 'auto' | 'scene' | 'player'
+    renderBackend = "auto",
     debugMode = false,
-    debugAnimations = false
+    debugAnimations = false,
+    debugNoAnim = false,
+    disableCameraAnimations = false
     }
 }
 
@@ -112,6 +116,19 @@ function CLN:OnEnable()
                 self.ReplayFrame:UpdateDisplayFrameState()
             elseif key == "debugMode" or key == "debugAnimations" then
                 -- no-op: toggles just affect logging gates
+            elseif key == "debugNoAnim" and self.ReplayFrame and self.ReplayFrame.SetNoAnimDebug then
+                self.ReplayFrame:SetNoAnimDebug(self.db.profile.debugNoAnim)
+                if self.ReplayFrame._UpdateModelOnUpdateHook then
+                    self.ReplayFrame:_UpdateModelOnUpdateHook()
+                end
+                    elseif key == "disableCameraAnimations" and self.ReplayFrame then
+                        if self.ReplayFrame.AnimStop then
+                            self.ReplayFrame:AnimStop('zoom')
+                            self.ReplayFrame:AnimStop('pan')
+                        end
+                        if self.ReplayFrame._UpdateModelOnUpdateHook then
+                            self.ReplayFrame:_UpdateModelOnUpdateHook()
+                        end
             end
         end
         -- Use dot-notation per CallbackHandler: self is the addon receiving callbacks
@@ -120,12 +137,13 @@ function CLN:OnEnable()
             applyKey("queueTextScale")
             applyKey("compactMode")
             applyKey("showReplayFrame")
+            applyKey("debugNoAnim")
         end)
         self.db.RegisterCallback(self, "OnProfileCopied", function()
-            applyKey("queueTextScale"); applyKey("compactMode"); applyKey("showReplayFrame")
+                    applyKey("queueTextScale"); applyKey("compactMode"); applyKey("showReplayFrame"); applyKey("debugNoAnim"); applyKey("disableCameraAnimations")
         end)
         self.db.RegisterCallback(self, "OnProfileReset", function()
-            applyKey("queueTextScale"); applyKey("compactMode"); applyKey("showReplayFrame")
+                    applyKey("queueTextScale"); applyKey("compactMode"); applyKey("showReplayFrame"); applyKey("debugNoAnim"); applyKey("disableCameraAnimations")
         end)
         self._dbProfileHooked = true
     end

@@ -115,17 +115,54 @@ end
 
 --- Log animation debug messages to console
 -- @param text The animation debug message to log.
-function Utils:LogAnimDebug(text)
-    if CLN.db.profile.debugMode and CLN.db.profile.debugAnimations then
-    -- Use the same default blue as other debug messages
-    CLN:Print("|cff87CEEb[ANIM]|r |cff87CEEb" .. text)
+-- Log animation debug messages with optional category
+-- Usage:
+--   Utils:LogAnimDebug("camera", "message") -- categorized
+--   Utils:LogAnimDebug("message")             -- legacy, uncategorized
+function Utils:LogAnimDebug(a, b)
+    local hasCat = (b ~= nil)
+    local category = hasCat and tostring(a) or nil
+    local text = hasCat and tostring(b) or tostring(a)
+    if self:ShouldLogAnimDebug(category) then
+        local catTag = category and ("[" .. category .. "]") or ""
+        CLN:Print("|cff87CEEb[ANIM]" .. catTag .. "|r |cff87CEEb" .. text)
     end
 end
 
 --- Helper function to check if animation debug logging is enabled
 -- @return boolean true if animation debug logging is enabled
-function Utils:ShouldLogAnimDebug()
-    return CLN.db.profile.debugMode and CLN.db.profile.debugAnimations
+-- Check if animation debug logging is enabled for an optional category
+function Utils:ShouldLogAnimDebug(category)
+    if not (CLN and CLN.db and CLN.db.profile and CLN.db.profile.debugMode and CLN.db.profile.debugAnimations) then
+        return false
+    end
+    if not category or category == "" then
+        return true
+    end
+    local cats = CLN.db.profile.debugAnimCategories
+    if not cats then
+        -- No per-category filter configured; allow all when global flag is on
+        return true
+    end
+    local function normalizeKey(k)
+        return type(k) == "string" and string.lower(k) or k
+    end
+    -- Table map form: { camera=true, framing=true } or { all=true }
+    if type(cats) == "table" then
+        if cats.all == true then return true end
+        return cats[normalizeKey(category)] == true
+    end
+    -- String form: "camera,framing,projection" or "all"
+    if type(cats) == "string" then
+        local s = string.lower(cats)
+        if s == "all" then return true end
+        for token in s:gmatch("[^,%s]+") do
+            if token == string.lower(category) then return true end
+        end
+        return false
+    end
+    -- Unknown type: default allow
+    return true
 end
 
 --- Determines whether a string is null or empty.

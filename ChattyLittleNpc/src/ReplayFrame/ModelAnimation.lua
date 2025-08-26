@@ -32,6 +32,11 @@ end
 
 -- Public: stop all animations of a given kind ("zoom"|"pan")
 function ReplayFrame:AnimStop(kind)
+    if (CLN and CLN.db and CLN.db.profile and CLN.db.profile.disableCameraAnimations) or (self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled()) then
+        -- Ensure updater detaches since nothing should animate
+        if self._UpdateModelOnUpdateHook then self:_UpdateModelOnUpdateHook() end
+        return
+    end
     ensureAnimTable(self)
     local out = {}
     for _, a in ipairs(self._anims) do
@@ -43,6 +48,12 @@ end
 
 -- Internal: start a generic animation
 function ReplayFrame:_AnimStart(kind, from, to, duration, opts)
+    if (CLN and CLN.db and CLN.db.profile and CLN.db.profile.disableCameraAnimations) or (self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled()) then
+        if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
+            CLN.Utils:LogAnimDebug("_AnimStart skipped due to debug no-op: " .. tostring(kind))
+        end
+        return nil
+    end
     ensureAnimTable(self)
     -- Skip creating an animation if there is effectively no delta
     if approxEqual(from, to) then
@@ -72,6 +83,12 @@ end
 
 -- Public: animate zoom to target in [0..1]
 function ReplayFrame:AnimZoomTo(target, duration, opts)
+    if (CLN and CLN.db and CLN.db.profile and CLN.db.profile.disableCameraAnimations) or (self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled()) then
+        if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
+            CLN.Utils:LogAnimDebug("AnimZoomTo skipped due to debug no-op")
+        end
+        return nil
+    end
     local m = self.NpcModelFrame
     local from = self._currentZoom or 0.65
     if m and m.GetPortraitZoom then
@@ -99,6 +116,12 @@ end
 
 -- Public: animate vertical pan (Z) to target
 function ReplayFrame:AnimPanTo(targetZ, duration, opts)
+    if (CLN and CLN.db and CLN.db.profile and CLN.db.profile.disableCameraAnimations) or (self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled()) then
+        if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
+            CLN.Utils:LogAnimDebug("AnimPanTo skipped due to debug no-op")
+        end
+        return nil
+    end
     local m = self.NpcModelFrame
     local fromZ = (self._currentZOffset ~= nil) and self._currentZOffset or (self.modelZOffset or 0)
     if m and m.GetPosition then
@@ -123,6 +146,11 @@ end
 
 -- Public: update all running animations; called each OnUpdate
 function ReplayFrame:AnimUpdate(elapsed)
+    if (CLN and CLN.db and CLN.db.profile and CLN.db.profile.disableCameraAnimations) or (self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled()) then
+        -- Ensure updater detaches
+        if self._UpdateModelOnUpdateHook then self:_UpdateModelOnUpdateHook() end
+        return
+    end
     if not elapsed or elapsed <= 0 then return end
     ensureAnimTable(self)
     if #self._anims == 0 then 
@@ -130,10 +158,7 @@ function ReplayFrame:AnimUpdate(elapsed)
         return 
     end
     
-    local shouldLog = CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug()
-    if shouldLog and #self._anims > 0 then 
-        CLN.Utils:LogAnimDebug("AnimUpdate processing " .. tostring(#self._anims) .. " animations")
-    end
+    local shouldLog = false
     
     local m = self.NpcModelFrame
     local remain = {}
@@ -147,25 +172,16 @@ function ReplayFrame:AnimUpdate(elapsed)
         if a.kind == "zoom" then
             if m and m.SetPortraitZoom then 
                 pcall(m.SetPortraitZoom, m, applyClamp(v, 0, 1))
-                if shouldLog then 
-                    CLN.Utils:LogAnimDebug("AnimUpdate zoom: " .. tostring(applyClamp(v, 0, 1)) .. " (progress: " .. tostring(rt) .. ")")
-                end
             end
             self._currentZoom = applyClamp(v, 0, 1)
         elseif a.kind == "pan" then
             if m and m.SetPosition then 
                 pcall(m.SetPosition, m, 0, 0, v)
-                if shouldLog then 
-                    CLN.Utils:LogAnimDebug("AnimUpdate pan: " .. tostring(v) .. " (progress: " .. tostring(rt) .. ")")
-                end
             end
             self._currentZOffset = v
         end
         if rt >= 1 then
             -- complete
-            if shouldLog then 
-                CLN.Utils:LogAnimDebug("Animation " .. tostring(a.kind) .. " completed")
-            end
             if a.onComplete then
                 pcall(a.onComplete)
             end

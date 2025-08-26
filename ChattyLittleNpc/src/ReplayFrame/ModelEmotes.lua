@@ -165,6 +165,12 @@ end
 -- steps: array of { zoom?, zoomDur?, panZ?, panDur?, animId?, animName?, hold? }
 -- Note: completion is emitted via EMOTE_COMPLETE; external callbacks are deprecated.
 function ReplayFrame:_StartEmoteSequence(steps, opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then
+        if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
+            CLN.Utils:LogAnimDebug("_StartEmoteSequence skipped due to debug no-op")
+        end
+        return false
+    end
     if not (steps and type(steps) == "table" and #steps > 0) then 
         CLN.Utils:LogAnimDebug("_StartEmoteSequence failed - invalid steps: " .. tostring(steps))
         return false 
@@ -272,6 +278,7 @@ end
 -- Wave emote: declarative sequence of camera and animation steps
 -- Options: duration (default 1.5), waveZoom (0.3), waveOutDur (0.2), zoomBackDur (0.5), lowerDelta (0.05)
 function ReplayFrame:PlayWaveEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     local m = self.NpcModelFrame
     if not (m and self.AnimZoomTo and self.AnimPanTo) then 
         return false 
@@ -314,6 +321,7 @@ end
 
 -- Alias: Hello emote uses the same wave choreography with tuned defaults
 function ReplayFrame:PlayHelloEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     opts = opts or {}
     if opts.duration == nil then opts.duration = 1.5 end
     if opts.waveZoom == nil then opts.waveZoom = 0.3 end
@@ -328,6 +336,7 @@ end
 -- Nod (YES) emote: small zoom-in and quick nod using animation id 185 (EmoteYes).
 -- Options: duration (default 0.9), zoomIn (default +0.08), lowerDelta (default 0.02)
 function ReplayFrame:PlayNodEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     local m = self.NpcModelFrame
     if not (m and self.AnimZoomTo and self.AnimPanTo) then return false end
     if not m:IsShown() then return false end
@@ -361,6 +370,7 @@ end
 -- Head shake (NO) emote: small zoom-in and quick head shake using animation id 186 (EmoteNo).
 -- Options: duration (default 1.1), zoomIn (default +0.08), lowerDelta (default 0.02)
 function ReplayFrame:PlayHeadShakeEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     local m = self.NpcModelFrame
     if not (m and self.AnimZoomTo and self.AnimPanTo) then return false end
     if not m:IsShown() then return false end
@@ -478,6 +488,12 @@ end
 -- Run the sequence on the ReplayFrame
 function ReplayFrame.EmoteBuilder:run(opts)
     local r = self.r
+    if r and r._NoAnimDebugEnabled and r:_NoAnimDebugEnabled() then
+        if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
+            CLN.Utils:LogAnimDebug("EmoteBuilder run skipped due to debug no-op")
+        end
+        return false
+    end
     if self.cur and (next(self.cur) ~= nil) then
         table.insert(self.steps, self.cur)
         self.cur = {}
@@ -511,6 +527,7 @@ end
 
 -- Simple talk emote: choose appropriate talk animation id and apply; duration controlled by caller
 function ReplayFrame:PlayTalkEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     local m = self.NpcModelFrame
     if not m then return false end
     opts = opts or {}
@@ -556,6 +573,7 @@ end
 
 -- Simple idle emote: set to stand/idle
 function ReplayFrame:PlayIdleEmote(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return false end
     local m = self.NpcModelFrame
     if not m then return false end
     opts = opts or {}
@@ -586,6 +604,7 @@ end
 
 -- Conversation emote loop: 80% talk / 20% idle by RNG
 function ReplayFrame:StartEmoteLoop(opts)
+    if self._NoAnimDebugEnabled and self:_NoAnimDebugEnabled() then return end
     local cur = CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying
     if not (cur and cur.soundHandle and cur.isPlaying and cur:isPlaying()) then return end
     -- Guard: don't start another loop if already active for this handle

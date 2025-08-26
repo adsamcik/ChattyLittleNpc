@@ -15,6 +15,7 @@ local options = {
     type = 'group',
     args = {
         DebuggingImprovements = {
+            order = 100,
             type = 'group',
             name = 'Debugging and Improvements',
             inline = true,
@@ -62,12 +63,118 @@ local options = {
                         -- no additional action required; gates read dynamically
                     end,
                 },
+                debugNoAnim = {
+                    type = 'toggle',
+                    name = 'Disable Animations (Debug Camera)',
+                    desc = 'Freeze all model/emote animations to debug camera framing. Camera logs remain active.',
+                    get = function(info) return CLN.db.profile.debugNoAnim end,
+                    set = function(info, value)
+                        CLN.db.profile.debugNoAnim = value
+                        if CLN.ReplayFrame and CLN.ReplayFrame.SetNoAnimDebug then
+                            CLN.ReplayFrame:SetNoAnimDebug(value)
+                            if CLN.ReplayFrame._UpdateModelOnUpdateHook then
+                                CLN.ReplayFrame:_UpdateModelOnUpdateHook()
+                            end
+                        end
+                    end,
+                },
                 debugAnimations = {
                     type = 'toggle',
                     name = 'Animation Debug',
                     desc = 'Reduce noise: only print animation-related debug when enabled.',
                     get = function(info) return CLN.db.profile.debugAnimations end,
                     set = function(info, value) CLN.db.profile.debugAnimations = value end,
+                },
+                debugAnimCategoriesAll = {
+                    type = 'toggle',
+                    name = 'Animation Categories: All',
+                    desc = 'When enabled, all animation debug categories are printed. Disable to pick specific categories below.',
+                    disabled = function()
+                        return not (CLN.db.profile.debugMode and CLN.db.profile.debugAnimations)
+                    end,
+                    get = function(info)
+                        return CLN.db.profile.debugAnimCategories == 'all'
+                    end,
+                    set = function(info, value)
+                        if value then
+                            CLN.db.profile.debugAnimCategories = 'all'
+                        else
+                            CLN.db.profile.debugAnimCategories = {}
+                        end
+                    end,
+                },
+                debugAnimCategories = {
+                    type = 'multiselect',
+                    name = 'Animation Categories',
+                    desc = 'Choose which categories of animation debug logs to print. Applies only when Debug Mode and Animation Debug are enabled.',
+                    values = function()
+                        return {
+                            camera = 'Camera',
+                            framing = 'Framing',
+                            projection = 'Projection',
+                            host = 'Host/Backend',
+                            modelFrame = 'Model Frame',
+                            fsm = 'State Machine',
+                        }
+                    end,
+                    disabled = function()
+                        return not (CLN.db.profile.debugMode and CLN.db.profile.debugAnimations) or CLN.db.profile.debugAnimCategories == 'all'
+                    end,
+                    get = function(info, key)
+                        local cats = CLN.db.profile.debugAnimCategories
+                        if cats == 'all' then return true end
+                        if cats == nil then return true end -- treat nil as all selected
+                        if type(cats) == 'table' then return cats[key] == true end
+                        if type(cats) == 'string' then
+                            local s = string.lower(cats)
+                            if s == 'all' then return true end
+                            for token in s:gmatch('[^,%s]+') do
+                                if token == string.lower(key) then return true end
+                            end
+                        end
+                        return false
+                    end,
+                    set = function(info, key, state)
+                        local function allKeys()
+                            return { 'camera', 'framing', 'projection', 'host', 'modelFrame', 'fsm' }
+                        end
+                        local cats = CLN.db.profile.debugAnimCategories
+                        if cats == 'all' or cats == nil or type(cats) ~= 'table' then
+                            -- Start from "all selected" baseline
+                            local map = {}
+                            for _, k in ipairs(allKeys()) do map[k] = true end
+                            cats = map
+                        end
+                        cats[key] = state and true or nil
+                        -- If all keys are true, collapse to 'all'; if none, keep empty table
+                        local any, all = false, true
+                        local present = {}
+                        for _, k in ipairs(allKeys()) do
+                            if cats[k] then any = true else all = false end
+                            present[k] = true
+                        end
+                        -- remove any unknown keys
+                        for k, _ in pairs(cats) do
+                            if not present[k] then cats[k] = nil end
+                        end
+                        if all then
+                            CLN.db.profile.debugAnimCategories = 'all'
+                        else
+                            -- keep map (possibly empty => logs disabled for all categories)
+                            CLN.db.profile.debugAnimCategories = cats
+                        end
+                    end,
+                },
+                debugAnimCategoriesNone = {
+                    type = 'execute',
+                    name = 'Disable All Categories',
+                    desc = 'Quickly disable all animation debug categories (nothing will print).',
+                    disabled = function()
+                        return not (CLN.db.profile.debugMode and CLN.db.profile.debugAnimations)
+                    end,
+                    func = function()
+                        CLN.db.profile.debugAnimCategories = {}
+                    end,
                 },
                 showGossipEditor = {
                     type = 'toggle',
@@ -91,10 +198,56 @@ local options = {
             },
         },
         ReplayFrame = {
+            order = 10,
             type = 'group',
             name = 'Replay Frame',
             inline = true,
             args = {
+                disableCameraAnimations = {
+                    type = 'toggle',
+                    name = 'Disable Camera Animations',
+                    desc = 'Stop camera zoom/pan easing during playback; model/emote animations still run.',
+                    get = function(info)
+                        return CLN.db.profile.disableCameraAnimations
+                    end,
+                    set = function(info, value)
+                        CLN.db.profile.disableCameraAnimations = value
+                        if CLN.ReplayFrame then
+                            if CLN.ReplayFrame.AnimStop then
+                                CLN.ReplayFrame:AnimStop('zoom')
+                                CLN.ReplayFrame:AnimStop('pan')
+                            end
+                            if CLN.ReplayFrame._UpdateModelOnUpdateHook then
+                                CLN.ReplayFrame:_UpdateModelOnUpdateHook()
+                            end
+                        end
+                    end,
+                },
+                renderBackend = {
+                    type = 'select',
+                    name = 'Render Backend',
+                    desc = 'Choose which model renderer to use for the floating head. Auto prefers ModelScene if available; PlayerModel is the legacy fallback.',
+                    values = function()
+                        return { auto = 'Auto (prefer ModelScene)', scene = 'ModelScene (Retail)', player = 'PlayerModel (Legacy)' }
+                    end,
+                    hidden = function()
+                        -- Only show when ModelScene is available in client
+                        return not (CLN and CLN.ReplayFrame and CLN.ReplayFrame.IsModelSceneAvailable and CLN.ReplayFrame:IsModelSceneAvailable())
+                    end,
+                    get = function(info)
+                        return CLN.db.profile.renderBackend or 'auto'
+                    end,
+                    set = function(info, value)
+                        CLN.db.profile.renderBackend = value
+                        -- Rebuild model host with new backend and refresh
+                        if CLN.ReplayFrame and CLN.ReplayFrame.RebuildModelHost then
+                            CLN.ReplayFrame:RebuildModelHost()
+                        end
+                        if CLN.ReplayFrame and CLN.ReplayFrame.UpdateDisplayFrameState then
+                            CLN.ReplayFrame:UpdateDisplayFrameState()
+                        end
+                    end,
+                },
                 -- Edit Mode specific settings removed
                 queueTextScale = {
                     type = 'range',
@@ -150,6 +303,7 @@ local options = {
             },
         },
         PlaybackOptions = {
+            order = 20,
             type = 'group',
             name = 'Playback Options',
             inline = true,
@@ -219,6 +373,7 @@ local options = {
             },
         },
         QuestFrameButtonOptions = {
+            order = 30,
             type = 'group',
             name = 'Quest And Gossip Frame Button Options',
             inline = true,
