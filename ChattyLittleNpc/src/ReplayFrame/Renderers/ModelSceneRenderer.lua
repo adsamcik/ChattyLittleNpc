@@ -270,6 +270,20 @@ function M.Attach(host, backend)
         return x
     end
 
+    -- Set actor yaw to face the camera based on axis/sign placement
+    local function _applyActorFacing(axis, sign)
+        if not (backend.actor and backend.actor.SetYaw) then return end
+        local yaw
+        if axis == "Y" then
+            -- Camera along ±Y: actor should face +Y for sign>0, -Y for sign<0
+            yaw = (sign and sign > 0) and 0 or math.pi
+        else
+            -- Camera along ±X: actor should face +X for sign>0, -X for sign<0
+            yaw = (sign and sign > 0) and (-math.pi * 0.5) or (math.pi * 0.5)
+        end
+        pcall(backend.actor.SetYaw, backend.actor, (host._frontYaw or 0) + yaw)
+    end
+
     function host:_DebugCheckProjection(cx, cy, cz, sx, sy, sz, frameW, frameH, pad)
         if backend.kind ~= "scene" or not (backend.frame and backend.frame.Project3DPointTo2D) then return end
         local okSize = (type(frameW) == "number" and frameW > 0 and type(frameH) == "number" and frameH > 0)
@@ -462,9 +476,7 @@ function M.Attach(host, backend)
         local pz = _finite(tz, cz)
         self._logBasisOnce = true
         self:_ApplyCameraLookAt(px, py, pz, tx, ty, tz)
-        if backend.actor and backend.actor.SetYaw then
-            pcall(backend.actor.SetYaw, backend.actor, (self._frontYaw or 0) + yaw)
-        end
+    _applyActorFacing(axis, sign)
 
         local nearWanted = math.max(0.05, 0.02 * d)
         if backend.frame.SetCameraNearClip then pcall(backend.frame.SetCameraNearClip, backend.frame, nearWanted) end
@@ -498,6 +510,7 @@ function M.Attach(host, backend)
                 if axis == "Y" then px, py = cx, (cy or 0) + sign * d else px, py = cx + sign * d, (cy or 0) end
                 px=_finite(px,cx); py=_finite(py,(cy or 0)); pz=_finite(tz,cz)
                 self:_ApplyCameraLookAt(px, py, pz, tx, ty, tz)
+                _applyActorFacing(axis, sign)
                 if backend.frame.SetCameraNearClip then pcall(backend.frame.SetCameraNearClip, backend.frame, math.max(0.05, 0.02 * d)) end
                 if backend.frame.SetCameraFarClip  then pcall(backend.frame.SetCameraFarClip,  backend.frame, math.max(40, d + depthHalf + pad * 2 + 20)) end
                 self._camDist = d
@@ -536,9 +549,7 @@ function M.Attach(host, backend)
                 else px, py, yaw = cx + sign * d, (cy or 0), (sign > 0) and (-math.pi * 0.5) or (math.pi * 0.5) end
                 px=_finite(px,cx); py=_finite(py,(cy or 0)); pz=_finite(tz,cz)
                 self:_ApplyCameraLookAt(px, py, pz, tx, ty, tz)
-                if backend.actor and backend.actor.SetYaw then
-                    pcall(backend.actor.SetYaw, backend.actor, (self._frontYaw or 0) + yaw)
-                end
+                _applyActorFacing(axis, sign)
                 if backend.frame.SetCameraNearClip then pcall(backend.frame.SetCameraNearClip, backend.frame, math.max(0.05, 0.02 * d)) end
                 if backend.frame.SetCameraFarClip  then pcall(backend.frame.SetCameraFarClip,  backend.frame, math.max(40, d + depthHalf + pad * 2 + 20)) end
 
@@ -582,6 +593,7 @@ function M.Attach(host, backend)
                     if axis == "Y" then px, py = cx, (cy or 0) + sign * d2 else px, py = cx + sign * d2, (cy or 0) end
                     px=_finite(px,cx); py=_finite(py,(cy or 0)); pz=_finite(tz,cz)
                     self:_ApplyCameraLookAt(px, py, pz, tx, ty, tz)
+                    _applyActorFacing(axis, sign)
                     if backend.frame.SetCameraNearClip then pcall(backend.frame.SetCameraNearClip, backend.frame, math.max(0.05, 0.02 * d2)) end
                     if backend.frame.SetCameraFarClip  then pcall(backend.frame.SetCameraFarClip,  backend.frame, math.max(40, d2 + depthHalf + pad * 2 + 20)) end
                     self._camDist = d2
