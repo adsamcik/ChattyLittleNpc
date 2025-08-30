@@ -198,17 +198,6 @@ function ReplayFrame:UpdateNpcModelDisplay(npcId)
             CLN.Utils:LogAnimDebug("UpdateNpcModelDisplay: calling NpcModelFrame:SetDisplayInfo")
         end
     self.NpcModelFrame:SetDisplayInfo(displayID)
-        -- Slightly zoomed out for more headroom so tall models aren't clipped
-    self.NpcModelFrame:SetPortraitZoom(0.65)
-    self._currentZoom = 0.65
-        -- Nudge model lower in viewport; negative Z lowers the model
-        if self.NpcModelFrame.SetPosition then
-            -- cache and reuse the chosen offset
-            self.modelZOffset = self.modelZOffset or -0.08
-            pcall(self.NpcModelFrame.SetPosition, self.NpcModelFrame, 0, 0, self.modelZOffset)
-            self._currentZOffset = self.modelZOffset
-        end
-        self.NpcModelFrame:SetRotation(0.3)
         -- For ModelScene actors, model load can be async; poll briefly to apply fit/anim
         local be = self.NpcModelFrame._backend
         if be and be.kind == "scene" and be.actor and C_Timer and C_Timer.After then
@@ -217,16 +206,18 @@ function ReplayFrame:UpdateNpcModelDisplay(npcId)
                 tries = tries + 1
                 local loaded = (be.actor.IsLoaded and be.actor:IsLoaded()) or false
                 if loaded then
-                    if self.NpcModelFrame.AutoFitToFrame then pcall(self.NpcModelFrame.AutoFitToFrame, self.NpcModelFrame) end
-                    -- Ensure talk/idle anim gets applied later in the flow
-                    return
+                    -- Build metadata once and apply default fit
+                    if self.BuildModelMetadataOnce then self:BuildModelMetadataOnce(displayID) end
+                    if self.ApplyDefaultFit then self:ApplyDefaultFit(displayID) end
+                    return -- done
                 end
                 if tries < 10 then C_Timer.After(0.05, tryApply) end
             end
             C_Timer.After(0.01, tryApply)
         else
-            -- PlayerModel or no async load; attempt auto-fit if available
-            if self.NpcModelFrame.AutoFitToFrame then pcall(self.NpcModelFrame.AutoFitToFrame, self.NpcModelFrame) end
+            -- PlayerModel or no async load; still attempt meta + default fit
+            if self.BuildModelMetadataOnce then self:BuildModelMetadataOnce(displayID) end
+            if self.ApplyDefaultFit then self:ApplyDefaultFit(displayID) end
         end
         -- If audio is playing for this NPC, set talk immediately; otherwise idle
         local cur = CLN and CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying
@@ -248,14 +239,7 @@ function ReplayFrame:UpdateNpcModelDisplay(npcId)
     self._hasValidModel = true
     if self.ModelContainer then self.ModelContainer:Show() end
     self.NpcModelFrame:Show()
-        -- One more safety: for ModelScene backends, call framing now so camera logs appear
-        local be2 = self.NpcModelFrame._backend
-        if be2 and be2.kind == "scene" and self.NpcModelFrame.FrameFullBodyFront then
-            if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
-                CLN.Utils:LogAnimDebug("UpdateNpcModelDisplay: calling FrameFullBodyFront immediately after Show")
-            end
-            pcall(self.NpcModelFrame.FrameFullBodyFront, self.NpcModelFrame, 0.12)
-        end
+    -- Do not call old auto-fit here; default fit applied above
     else
         -- Fallback: when we don't have a mapping, try using the live unit to display the model
         if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
@@ -265,26 +249,13 @@ function ReplayFrame:UpdateNpcModelDisplay(npcId)
         if canUseUnit and self.NpcModelFrame and self.NpcModelFrame.SetUnit then
             self.NpcModelFrame:ClearModel()
             pcall(self.NpcModelFrame.SetUnit, self.NpcModelFrame, "npc")
-            -- Apply the same presentation tweaks as normal path
-            self.NpcModelFrame:SetPortraitZoom(0.65)
-            self._currentZoom = 0.65
-            if self.NpcModelFrame.SetPosition then
-                self.modelZOffset = self.modelZOffset or -0.08
-                pcall(self.NpcModelFrame.SetPosition, self.NpcModelFrame, 0, 0, self.modelZOffset)
-                self._currentZOffset = self.modelZOffset
-            end
-            self.NpcModelFrame:SetRotation(0.3)
+            -- Build metadata and apply default fit when unit is loaded
+            if self.BuildModelMetadataOnce then self:BuildModelMetadataOnce(nil) end
+            if self.ApplyDefaultFit then self:ApplyDefaultFit(nil) end
             -- Show container + model
             if self.ModelContainer then self.ModelContainer:Show() end
             self.NpcModelFrame:Show()
-            -- Frame immediately for scene backends so camera logs appear
-            local be3 = self.NpcModelFrame._backend
-            if be3 and be3.kind == "scene" and self.NpcModelFrame.FrameFullBodyFront then
-                if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug() then
-                    CLN.Utils:LogAnimDebug("UpdateNpcModelDisplay: FrameFullBodyFront after SetUnit fallback")
-                end
-                pcall(self.NpcModelFrame.FrameFullBodyFront, self.NpcModelFrame, 0.12)
-            end
+            -- Do not auto-fit here; default fit already applied
             -- Mark as having a model so animation path can proceed
             self._hasValidModel = true
         else
@@ -344,6 +315,51 @@ function ReplayFrame:ContractForNpcModel() end
 -- =========================
 -- Simple animation helpers
 -- =========================
+
+-- Build metadata once for the current model/displayID; safe to call multiple times
+function ReplayFrame:BuildModelMetadataOnce(displayID)
+    self._modelMeta = self._modelMeta or {}
+    local key = self:ResolveModelMetaKey(displayID, (CLN and CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying and CLN.VoiceoverPlayer.currentlyPlaying.npcId) or nil)
+    if not key then return end
+    if self._modelMeta[key] and self._modelMeta[key]._built then return end
+    local host = self.NpcModelFrame
+    if not (host and host.GetBounds) then return end
+    local b = host:GetBounds()
+    if not (b and b.min and b.max) then return end
+    local minX, minY, minZ = b.min.x or 0, b.min.y or 0, b.min.z or 0
+    local maxX, maxY, maxZ = b.max.x or 0, b.max.y or 0, b.max.z or 0
+    local sizeW = math.abs(maxX - minX)
+    local sizeH = math.abs(maxZ - minZ)
+    local sizeD = math.abs(maxY - minY)
+    local center = { x = (minX + maxX) * 0.5, y = (minY + maxY) * 0.5, z = (minZ + maxZ) * 0.5 }
+    local meta = self:GetModelMeta(displayID, (CLN and CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying and CLN.VoiceoverPlayer.currentlyPlaying.npcId) or nil, true) or {}
+    meta.bounds = b
+    meta.size = { w = sizeW, h = sizeH, d = sizeD }
+    meta.center = center
+    meta.topZ = math.max(minZ, maxZ)
+    meta.bottomZ = math.min(minZ, maxZ)
+    meta.defaultYaw = meta.defaultYaw or 0
+    meta.distance = meta.distance or 10
+    meta.fovV = host.GetFovV and host:GetFovV() or (meta.fovV or math.rad(60))
+    meta.aspect = host.GetAspect and host:GetAspect() or (meta.aspect or 1.0)
+    meta.scaleD10 = ReplayFrame.Framer.FitScale(meta, 10, 0.05)
+    meta._built = true
+    self:SetModelMeta(displayID, (CLN and CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying and CLN.VoiceoverPlayer.currentlyPlaying.npcId) or nil, meta)
+    -- Log once
+    if CLN.Utils and CLN.Utils.ShouldLogAnimDebug and CLN.Utils:ShouldLogAnimDebug("framing") then
+        CLN.Utils:LogAnimDebug("framing", string.format("Meta built dID=%s H=%.2f W=%.2f fovV=%.3f aspect=%.2f scaleD10=%.3f",
+            tostring(displayID or "unit"), meta.size.h or -1, meta.size.w or -1, meta.fovV or -1, meta.aspect or -1, meta.scaleD10 or -1))
+    end
+end
+
+-- Apply the default fit based on cached meta
+function ReplayFrame:ApplyDefaultFit(displayID)
+    local host = self.NpcModelFrame
+    if not host then return end
+    -- Defer to renderer's FitDefault which handles scale, composition bias,
+    -- projector-based corrections, and clipping in one coherent step.
+    if host.FitDefault then host:FitDefault() end
+end
 
 -- Ensure a gentle idle animation and subtle rotation sway are active when the model is shown
 function ReplayFrame:SetupModelAnimations()

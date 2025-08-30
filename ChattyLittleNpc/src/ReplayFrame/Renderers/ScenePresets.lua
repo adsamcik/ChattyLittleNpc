@@ -88,45 +88,20 @@ end
 
 -- Preset: Full Body
 function P.FullBody(host, pad)
-    local b = host._backend; if not (b and b.kind=="scene") then return end
-    local cx,_,cz,sx,sy,sz = getBounds(b.actor)
-    if not cx then host:PointCameraAtHead(); return end
-    local d,vfov = solveDistance(b.frame, cx,cz,sx,sz, pad or 0.1)
-    local halfView = d*math.tan(vfov*0.5)
-    local extra = math.max(0, halfView - (sz*0.5))
-    local bias = host._compBias or -0.25
-    local tz = cz + bias*extra
-    local px,py,pz = cx, d, tz
-    if b.actor and b.actor.SetYaw then pcall(b.actor.SetYaw, b.actor, host._frontYaw or 0) end
-    lookAt(host, px,py,pz, cx,0,tz)
+    if not host or type(host.FitDefault) ~= "function" then return end
+    host:FitDefault(pad)
 end
 
 -- Preset: Upper Body (closer crop)
 function P.UpperBody(host, pad)
-    local b = host._backend; if not (b and b.kind=="scene") then return end
-    local cx,_,cz,sx,sy,sz = getBounds(b.actor)
-    if not cx then host:PointCameraAtHead(); return end
-    local d,vfov = solveDistance(b.frame, cx,cz,sx,sz, (pad or 0.05))
-    d = d * 0.55 -- closer
-    local halfView = d*math.tan(vfov*0.5)
-    local extra = math.max(0, halfView - (sz*0.5))
-    local tz = cz + (host._compBias or -0.2) * extra
-    if b.actor and b.actor.SetYaw then pcall(b.actor.SetYaw, b.actor, host._frontYaw or 0) end
-    lookAt(host, cx, d, tz, cx, 0, tz)
+    if not host or type(host.ShowUpper) ~= "function" then return end
+    host:ShowUpper(0.66, pad)
 end
 
 -- Preset: Wave (slight zoom-out with more top verticality)
 function P.Wave(host, pad)
-    local b = host._backend; if not (b and b.kind=="scene") then return end
-    local cx,_,cz,sx,sy,sz = getBounds(b.actor)
-    if not cx then host:PointCameraAtHead(); return end
-    local d,vfov = solveDistance(b.frame, cx,cz,sx,sz, (pad or 0.15))
-    d = d * 1.1 -- step back a bit
-    local halfView = d*math.tan(vfov*0.5)
-    local extra = math.max(0, halfView - (sz*0.5))
-    local tz = cz + math.min(0.4, math.max(-0.4, (host._compBias or -0.15))) * extra
-    if b.actor and b.actor.SetYaw then pcall(b.actor.SetYaw, b.actor, host._frontYaw or 0) end
-    lookAt(host, cx, d, tz, cx, 0, tz)
+    if not host or type(host.ZoomToHeightFactor) ~= "function" then return end
+    host:ZoomToHeightFactor(1.1, pad)
 end
 
 return P

@@ -55,8 +55,42 @@ function ReplayFrame:CreateModelHost(parent)
         host.SetSheathed = function(_, b) pcall(pm.SetSheathed, pm, b and true or false) end
         host.SetPaused = function(_, b) pcall(pm.SetPaused, pm, b and true or false) end
         host.SetUnit = function(_, unit) pcall(pm.SetUnit, pm, unit) end
+        -- Framing API (fallback emulation)
+        host.GetBounds = function() return nil end
+        host.GetActorScale = function() return 1.0 end
+        host.SetActorScale = function(_, s)
+            local base = 0.65
+            local scale = tonumber(s) or 1.0
+            local zoom = math.max(0.0, math.min(1.5, base / math.max(0.1, scale)))
+            pcall(pm.SetPortraitZoom, pm, zoom)
+        end
+        host.GetActorYaw = function() return 0 end
+        host.SetActorYaw = function(_, yaw) pcall(pm.SetRotation, pm, tonumber(yaw) or 0) end
+        host.SetCamera = function(_, distance, yaw, pitch)
+            local d = tonumber(distance) or 2.5
+            local zoom = math.max(0.0, math.min(1.5, 3.2 - 0.4 * d))
+            pcall(pm.SetPortraitZoom, pm, zoom)
+            pcall(pm.SetRotation, pm, tonumber(yaw) or 0)
+        end
+        host.GetFovV = function() return math.rad(60) end
+        host.GetAspect = function(self)
+            local w, h = self:GetSize(); if not (w and h) or h == 0 then return 1.0 end; return w / h
+        end
+        host.SetTarget = function(_, vec3)
+            vec3 = vec3 or {}; local z = tonumber(vec3.z) or 0; pcall(pm.SetPosition, pm, 0, 0, z)
+        end
+        host.ProjectFit = function(self, scale, targetCenter)
+            if scale ~= nil then self:SetActorScale(scale) end
+            if targetCenter ~= nil then self:SetTarget(targetCenter) end
+            self:SetCamera(2.5, 0, 0)
+        end
     else
         if attach then attach() end
+    end
+
+    -- Normalize camera API across backends
+    if ReplayFrame and ReplayFrame.HostCamera and ReplayFrame.HostCamera.Attach then
+        ReplayFrame.HostCamera.Attach(host)
     end
 
     -- Provide a helper for renderer fallback when scene actor can't handle displayIDs

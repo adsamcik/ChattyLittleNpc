@@ -11,6 +11,8 @@ src/EventHandler.lua
 src/Options.lua
 Main.lua
 src/ReplayFrame/init.lua
+src/ReplayFrame/HostCamera.lua
+src/ReplayFrame/FramerScene.lua
 src/ReplayFrame/Position.lua
 src/ReplayFrame/UI.lua
 src/ReplayFrame/EditMode.lua

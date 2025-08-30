@@ -8,6 +8,50 @@ CLN.ReplayFrame = ReplayFrame
 -- Pure helpers namespace
 ReplayFrame.Pure = ReplayFrame.Pure or {}
 
+-- =============================================================
+-- Model metadata cache (keyed by displayID, fallback to npcId)
+-- =============================================================
+-- Usage:
+--   local meta = ReplayFrame:GetModelMeta(displayID, npcId, true)
+--   ReplayFrame:UpdateModelMeta(displayID, npcId, { framing = { scale = 1.1 } })
+-- Keys are strings prefixed to avoid collisions: 'd:<displayID>' or 'n:<npcId>'.
+ReplayFrame._modelMeta = ReplayFrame._modelMeta or {}
+
+function ReplayFrame:ResolveModelMetaKey(displayID, npcId)
+    local d = tonumber(displayID)
+    if d and d > 0 then return "d:" .. tostring(d) end
+    local n = tonumber(npcId)
+    if n and n > 0 then return "n:" .. tostring(n) end
+    return nil
+end
+
+function ReplayFrame:GetModelMeta(displayID, npcId, createIfMissing)
+    local key = self:ResolveModelMetaKey(displayID, npcId)
+    if not key then return nil end
+    local t = self._modelMeta[key]
+    if not t and createIfMissing then
+        t = { displayID = tonumber(displayID), npcId = tonumber(npcId) }
+        self._modelMeta[key] = t
+    end
+    return t
+end
+
+function ReplayFrame:SetModelMeta(displayID, npcId, meta)
+    if type(meta) ~= "table" then return end
+    local key = self:ResolveModelMetaKey(displayID, npcId)
+    if not key then return end
+    meta.displayID = tonumber(displayID) or meta.displayID
+    meta.npcId = tonumber(npcId) or meta.npcId
+    self._modelMeta[key] = meta
+end
+
+function ReplayFrame:UpdateModelMeta(displayID, npcId, patch)
+    if type(patch) ~= "table" then return end
+    local meta = self:GetModelMeta(displayID, npcId, true)
+    if not meta then return end
+    for k, v in pairs(patch) do meta[k] = v end
+end
+
 -- Lightweight debug logger (disabled unless profile.debugMode is true)
 function ReplayFrame:Debug(...)
     local ok = CLN and CLN.db and CLN.db.profile and CLN.db.profile.debugMode
@@ -64,6 +108,51 @@ end
 
 function ReplayFrame:ToSingleLine(text)
     return ReplayFrame.Pure.ToSingleLine(text)
+end
+
+-- =============================================================
+-- Framer (pure math helpers for camera/framing)
+-- =============================================================
+ReplayFrame.Framer = ReplayFrame.Framer or {}
+
+-- Compute scale to fit at distance D (vertical FOV in radians), with margin m (0..1)
+function ReplayFrame.Framer.FitScale(meta, D, margin)
+    if not (meta and meta.size and meta.size.h and meta.size.w and meta.fovV and meta.aspect) then return 1.0 end
+    local fovV = tonumber(meta.fovV) or math.rad(60)
+    local aspect = tonumber(meta.aspect) or 1.0
+    local Hobj = tonumber(meta.size.h) or 1.0
+    local Wobj = tonumber(meta.size.w) or 1.0
+    local m = math.max(0, math.min(0.5, tonumber(margin) or 0))
+    local V = 2 * (tonumber(D) or 10) * math.tan(fovV * 0.5)
+    local Hview = V * aspect
+    local sV = (V * (1 - m)) / math.max(1e-6, Hobj)
+    local sH = (Hview * (1 - (m + 0.03))) / math.max(1e-6, Wobj) -- add small extra horizontal margin
+    local s = math.min(sV, sH)
+    return math.max(0.05, math.min(10, s))
+end
+
+-- Percent range framing [p0,p1] from feet->head (0..1); returns zCenter and scale for distance D
+function ReplayFrame.Framer.PercentRange(meta, p0, p1, D, margin)
+    if not (meta and meta.size and meta.bottomZ and meta.center and meta.fovV and meta.aspect) then return nil end
+    local Hobj = tonumber(meta.size.h) or 1.0
+    local bottom = tonumber(meta.bottomZ) or 0
+    local p0n = math.max(0, math.min(1, tonumber(p0) or 0))
+    local p1n = math.max(0, math.min(1, tonumber(p1) or 1))
+    if p1n <= p0n then p1n = math.min(1, p0n + 0.01) end
+    local zCenter = bottom + ((p0n + p1n) * 0.5) * Hobj
+    -- Base scale to fit full height at D
+    local sBase = ReplayFrame.Framer.FitScale(meta, D, margin)
+    local sRange = sBase / math.max(1e-3, (p1n - p0n))
+    -- Width clamp as in FitScale
+    local fovV = tonumber(meta.fovV) or math.rad(60)
+    local aspect = tonumber(meta.aspect) or 1.0
+    local V = 2 * (tonumber(D) or 10) * math.tan(fovV * 0.5)
+    local Hview = V * aspect
+    local Wobj = tonumber(meta.size.w) or 1.0
+    local m = math.max(0, math.min(0.5, tonumber(margin) or 0)) + 0.03
+    local sH = (Hview * (1 - m)) / math.max(1e-6, Wobj)
+    local s = math.min(sRange, sH)
+    return zCenter, math.max(0.05, math.min(10, s))
 end
 
 -- Pure: choose header text given state

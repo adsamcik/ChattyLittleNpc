@@ -34,12 +34,19 @@ function M.Attach(host, backend)
     host._backend = backend
     host._zoom = host._zoom or 0.65
     host._lastAnimId = nil
+    -- Framing emulation fields
+    host._fovV = host._fovV or math.rad(60) -- fixed 60° vertical FOV
+    host._distance = host._distance or 2.5
+    host._scale = host._scale or 1.0
+    host._targetZ = host._targetZ or 0
+    host._yaw = host._yaw or 0
 
     function host:ClearModel()
         safeCall(backend.frame, "ClearModel")
     end
 
     function host:SetDisplayInfo(displayID)
+    host._currentDisplayID = displayID
         safeCall(backend.frame, "SetDisplayInfo", displayID)
     end
 
@@ -102,6 +109,98 @@ function M.Attach(host, backend)
         if P and P[name] then return P[name](self) end
         -- Fallbacks
         if name == "FullBody" then return self:FrameFullBodyFront(0.1) end
+    end
+
+    -- Tiny Framing API (emulated for PlayerModel)
+    function host:GetBounds()
+        -- PlayerModel lacks reliable bounds; return nil to signal unknown
+        return nil
+    end
+
+    function host:GetActorScale()
+        return self._scale or 1.0
+    end
+
+    function host:SetActorScale(s)
+        self._scale = tonumber(s) or 1.0
+        -- Map actor scale proportionally to portrait zoom (heuristic)
+        -- Keep zoom in [0, 1.5] range; base = 0.65
+        local base = 0.65
+        local zoom = math.max(0.0, math.min(1.5, base / math.max(0.1, self._scale)))
+        self:SetPortraitZoom(zoom)
+    end
+
+    function host:GetActorYaw()
+        return self._yaw or 0
+    end
+
+    function host:SetActorYaw(yaw)
+        self._yaw = tonumber(yaw) or 0
+        self:SetRotation(self._yaw)
+    end
+
+    function host:SetCamera(distance, yaw, pitch)
+        -- PlayerModel has no real camera; emulate by storing and tweaking zoom/offset
+        self._distance = tonumber(distance) or self._distance or 2.5
+        self._yaw = tonumber(yaw) or self._yaw or 0
+        -- pitch isn't supported; ignore but store
+        self._pitch = tonumber(pitch) or self._pitch or 0
+        -- Map distance to zoom inversely: more distance -> smaller zoom
+        -- Choose simple linear map around typical distances
+        local zoom = math.max(0.0, math.min(1.5, 3.2 - 0.4 * self._distance))
+        self:SetPortraitZoom(zoom)
+        -- Keep target z via SetPosition (x=y=0)
+        self:SetPosition(0, 0, self._targetZ or 0)
+        -- Apply yaw via rotation
+        self:SetRotation(self._yaw)
+    end
+
+    function host:GetFovV()
+        return self._fovV or math.rad(60)
+    end
+
+    function host:GetAspect()
+        local w, h = self:GetSize()
+        if not (w and h) or h == 0 then return 1.0 end
+        return w / h
+    end
+
+    function host:SetTarget(vec3)
+        vec3 = vec3 or {}
+        self._targetZ = tonumber(vec3.z) or self._targetZ or 0
+        self:SetPosition(0, 0, self._targetZ)
+    end
+
+    function host:ProjectFit(scale, targetCenter)
+        -- Apply center first to get targetZ
+        if targetCenter ~= nil then self:SetTarget(targetCenter) end
+        -- If we have metadata for current displayID, use proportional mapping
+        local meta
+        if ReplayFrame and ReplayFrame.GetModelMeta then
+            meta = ReplayFrame:GetModelMeta(host._currentDisplayID, nil, false)
+        end
+        if meta and meta.scaleD10 and meta.center then
+            -- Record reference zoom if first time
+            meta._pRef = meta._pRef or self:GetPortraitZoom() or 0.65
+            meta._zRef = meta._zRef or (targetCenter and targetCenter.z) or self._targetZ or 0
+            -- Compute zoom proportional to scale
+            local targetScale = tonumber(scale) or self._scale or 1.0
+            targetScale = math.max(0.05, math.min(10, targetScale))
+            local pRef = meta._pRef
+            local sRef = tonumber(meta.scaleD10) or 1.0
+            local zoom = pRef * (sRef / targetScale)
+            self:SetPortraitZoom(zoom)
+            -- Adjust Z so that center.z tracks with scale (Δz scaled by 1/scale)
+            local cz = (targetCenter and targetCenter.z) or self._targetZ or 0
+            local z = (meta._zRef or 0) + ((cz - (meta.center.z or 0)) / targetScale)
+            self:SetPosition(0, 0, z)
+            -- Keep yaw and emulated distance mapping
+            self:SetRotation(self._yaw or 0)
+            return
+        end
+        -- Fallback generic mapping
+        if scale ~= nil then self:SetActorScale(scale) end
+        self:SetCamera(self._distance or 2.5, self._yaw or 0, self._pitch or 0)
     end
 
     -- Keep backend visibility in sync with the host so it actually renders when shown

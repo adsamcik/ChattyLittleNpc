@@ -57,6 +57,8 @@ local defaults = {
         audioChannel = "MASTER",
     -- Rendering backend preference for the Replay Frame model host: 'auto' | 'scene' | 'player'
     renderBackend = "auto",
+    -- Advanced projector-based fitting for ModelScene backend (optional)
+    advancedCameraFitting = false,
     debugMode = false,
     debugAnimations = false,
     debugNoAnim = false,
@@ -120,6 +122,18 @@ function CLN:OnEnable()
                 self.ReplayFrame:SetNoAnimDebug(self.db.profile.debugNoAnim)
                 if self.ReplayFrame._UpdateModelOnUpdateHook then
                     self.ReplayFrame:_UpdateModelOnUpdateHook()
+                end
+            elseif key == "advancedCameraFitting" and self.ReplayFrame then
+                -- Rebuild host so the framer delegation toggles cleanly
+                if self.ReplayFrame.RebuildModelHost then
+                    self.ReplayFrame:RebuildModelHost()
+                end
+                -- Re-apply default fit to the current model if visible
+                if self.ReplayFrame.ApplyDefaultFit then
+                    local cur = self.VoiceoverPlayer and self.VoiceoverPlayer.currentlyPlaying
+                    if cur and (self.ReplayFrame.NpcModelFrame and self.ReplayFrame.NpcModelFrame.IsShown and self.ReplayFrame.NpcModelFrame:IsShown()) then
+                        self.ReplayFrame:ApplyDefaultFit(cur.displayID)
+                    end
                 end
                     elseif key == "disableCameraAnimations" and self.ReplayFrame then
                         if self.ReplayFrame.AnimStop then

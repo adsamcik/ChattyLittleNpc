@@ -203,6 +203,27 @@ local options = {
             name = 'Replay Frame',
             inline = true,
             args = {
+                advancedCameraFitting = {
+                    type = 'toggle',
+                    name = 'Advanced Camera Fitting (ModelScene)',
+                    desc = 'Use projector-based fitting for better framing in ModelScene backend. Disable if you see jitter or prefer the classic fit.',
+                    get = function(info)
+                        return CLN.db.profile.advancedCameraFitting
+                    end,
+                    set = function(info, value)
+                        CLN.db.profile.advancedCameraFitting = value
+                        -- Rebuild host to switch fit delegates and reapply default fit if visible
+                        if CLN.ReplayFrame and CLN.ReplayFrame.RebuildModelHost then
+                            CLN.ReplayFrame:RebuildModelHost()
+                        end
+                        if CLN.ReplayFrame and CLN.ReplayFrame.ApplyDefaultFit then
+                            local cur = CLN.VoiceoverPlayer and CLN.VoiceoverPlayer.currentlyPlaying
+                            if cur and (CLN.ReplayFrame.NpcModelFrame and CLN.ReplayFrame.NpcModelFrame.IsShown and CLN.ReplayFrame.NpcModelFrame:IsShown()) then
+                                CLN.ReplayFrame:ApplyDefaultFit(cur.displayID)
+                            end
+                        end
+                    end,
+                },
                 disableCameraAnimations = {
                     type = 'toggle',
                     name = 'Disable Camera Animations',
